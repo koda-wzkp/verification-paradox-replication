@@ -24,6 +24,8 @@ def main() -> None:
     ap.add_argument("--combined", choices=["zero", "later", "drop"], default="zero")
     ap.add_argument("--boot-k", type=int, default=300)
     ap.add_argument("--boot-rho", type=int, default=2000)
+    ap.add_argument("--all-rows", action="store_true",
+                    help="keep every row per condition-review (first-draft reading) instead of the live row")
     a = ap.parse_args()
 
     path = mona.download(a.data)
@@ -32,7 +34,7 @@ def main() -> None:
     print(f"Combined.xlsx sha256 {digest[:12]}… {'matches' if same else 'DIFFERS from'} the notice's snapshot")
 
     rows = mona.load_rows(path, a.combined)
-    hist = mona.histories(rows)
+    hist = mona.histories(rows, collapse=not a.all_rows)
     years = mona.approval_years(rows)
     never = np.mean([not any(s in mona.ASSESSED for _r, s in h) for h in hist.values()])
     counts = {"rows": int(len(rows)), "conditions": len(hist), "arrangements": int(rows.arr.nunique()),
@@ -69,8 +71,26 @@ def main() -> None:
         ci = f"[{v['ci95'][0]:+.2f}, {v['ci95'][1]:+.2f}]" if "ci95" in v else f"p={v['p']:.4f}"
         print(f"  {k:24s} n={v['n']:3d}  rho={v['rho']:+.3f}  {ci}")
 
-    out = {"sha256": digest, "matches_reference": same, "combined_codes": a.combined,
-           "counts": counts, "weibull": shapes, "paradox": tests}
+    rng = np.random.default_rng(20261030)
+    pre, post = p[p.year < 2009].dropna(subset=["verification", "health"]), p[p.year >= 2010].dropna(subset=["verification", "health"])
+    from scipy.stats import spearmanr
+    r = lambda d: spearmanr(d.verification, d.health)[0]  # noqa: E731
+    dd = [r(post.iloc[rng.integers(0, len(post), len(post))]) - r(pre.iloc[rng.integers(0, len(pre), len(pre))]) for _ in range(B)]
+    tests["reform_change"] = {"rho": float(r(post) - r(pre)), "ci95": [float(np.percentile(dd, 2.5)), float(np.percentile(dd, 97.5))], "n": len(pre) + len(post)}
+    print(f"  {'reform_change':24s} n={tests['reform_change']['n']:3d}  diff={tests['reform_change']['rho']:+.3f}  "
+          f"[{tests['reform_change']['ci95'][0]:+.2f}, {tests['reform_change']['ci95'][1]:+.2f}]")
+
+    composting = {"pooled": paradox.composting_curve(hist)}
+    for name, par in [("odd_arrangements", 1), ("even_arrangements", 0)]:
+        composting[name] = paradox.composting_curve({k: v for k, v in hist.items() if k[0] % 2 == par})
+    print("\nStill unassessed after t reviews -> share later assessed (pooled | odd | even):")
+    for i, c in enumerate(composting["pooled"]["curve"]):
+        o, e = composting["odd_arrangements"]["curve"][i], composting["even_arrangements"]["curve"][i]
+        print(f"  t={c['t']}: {c['share']:.2f} (n={c['n']}) | {o['share']:.2f} | {e['share']:.2f}")
+    print("  halving point t*:", {k: v["threshold_t"] for k, v in composting.items()})
+
+    out = {"sha256": digest, "matches_reference": same, "combined_codes": a.combined, "all_rows": a.all_rows,
+           "counts": counts, "weibull": shapes, "paradox": tests, "composting": composting}
     Path("results.json").write_text(json.dumps(out, indent=1))
     print("\nWrote results.json")
 

@@ -28,7 +28,7 @@ Sensitivity: `python reproduce.py --combined later` reads combined review codes 
 | `tests/test_weibull_synthetic.py` | The estimator must recover known shapes from review-sampled synthetic data |
 | `tests/test_units.py` | One history per condition; status and review-code decoding |
 
-**Unit of analysis.** A condition is keyed by arrangement, condition type, and normalized description. Its rows across reviews form one history.
+**Unit of analysis.** A condition is keyed by arrangement, condition type, and normalized description. Its rows across reviews form one history, with one row per review: an assessment first, then any other status, then a superseded "Modified date" row (MONA keeps the old deadline beside the live one when a deadline is renegotiated). `--all-rows` keeps every row, the first-draft reading.
 
 **Verification** is the share of a program's conditions ever assessed (Met, Met with delay, Partially met, or Not met). **Health** is the share whose last assessment is Met.
 

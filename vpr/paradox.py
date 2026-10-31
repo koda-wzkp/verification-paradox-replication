@@ -50,3 +50,23 @@ def partial_rho(df: pd.DataFrame, x: str, y: str, controls: list[str]) -> dict:
     res = lambda v: rankdata(v) - Z @ np.linalg.lstsq(Z, rankdata(v), rcond=None)[0]  # noqa: E731
     r, p = pearsonr(res(d[x]), res(d[y]))
     return {"rho": float(r), "p": float(p), "n": len(d)}
+
+
+def composting_curve(hist: dict, t_max: int = 8) -> dict:
+    """For conditions first observed unassessed: among those still unassessed after
+    t reviews (and observed beyond t), the share assessed later. `threshold_t` is the
+    first t at which that share falls below half its t = 0 value."""
+    import math
+    rows = []
+    for (_arr, _ct, _k), h in hist.items():
+        if h[0][1] in ASSESSED:
+            continue
+        t0 = h[0][0]
+        ta = next((r - t0 for r, s in h if s in ASSESSED), math.inf)
+        rows.append((ta, h[-1][0] - t0))
+    curve = []
+    for t in range(t_max + 1):
+        risk = [ta for ta, last in rows if ta > t and last > t]
+        curve.append({"t": t, "n": len(risk), "share": sum(ta < math.inf for ta in risk) / len(risk) if risk else float("nan")})
+    base = curve[0]["share"]
+    return {"curve": curve, "threshold_t": next((c["t"] for c in curve if c["share"] < base / 2), None)}

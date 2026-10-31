@@ -13,6 +13,7 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 COMBINED_URL = "https://www.imf.org/external/np/pdr/mona/ArrangementsData/Combined.xlsx"
@@ -94,30 +95,31 @@ def load_rows(path: Path, combined: str = "zero") -> pd.DataFrame:
 
 
 def collapse_reviews(rows: pd.DataFrame) -> pd.DataFrame:
-    """One row per condition per review: the live row.
+    """One row per condition per review.
 
-    When a deadline is renegotiated, MONA keeps the superseded deadline as a
-    "Modified date" row at that review and later ones, beside the row carrying
-    the new deadline. The live row is the one with the latest test date; on a
-    tie, an assessed status wins over an unassessed one. The returned frame adds
-    `renegotiated`: True when any row for that condition-review was Modified date.
+    Rows sharing a condition-review are ranked: an assessment (Met, Met with delay,
+    Partially met, Not met) first, then any other status, then "Modified date"
+    last. Within a rank the latest test date wins. "Modified date" rows are
+    superseded deadlines that MONA keeps beside the live row when a deadline is
+    renegotiated; ranking assessments first ensures no recorded assessment is
+    dropped. The returned frame adds `renegotiated`: True when any row for that
+    condition-review was Modified date.
     """
     r = rows.copy()
-    r["_assessed"] = r.status.isin(ASSESSED)
+    r["_rank"] = np.where(r.status.isin(ASSESSED), 2, np.where(r.status == "Modified date", 0, 1))
     r["renegotiated"] = r.groupby(["arr", "ctype", "key", "review"]).status.transform(
         lambda s: (s == "Modified date").any())
-    r = r.sort_values(["arr", "ctype", "key", "review", "test_date", "_assessed"],
+    r = r.sort_values(["arr", "ctype", "key", "review", "_rank", "test_date"],
                       na_position="first", kind="mergesort")
-    return r.groupby(["arr", "ctype", "key", "review"], as_index=False).tail(1).drop(columns="_assessed")
+    return r.groupby(["arr", "ctype", "key", "review"], as_index=False).tail(1).drop(columns="_rank")
 
 
-def histories(rows: pd.DataFrame, collapse: bool = False) -> dict[tuple, list[tuple[int, str]]]:
+def histories(rows: pd.DataFrame, collapse: bool = True) -> dict[tuple, list[tuple[int, str]]]:
     """{(arr, ctype, normalized description): [(review, status), ...] sorted by review}.
 
-    collapse=False keeps every row (the reading used for the correction notice,
-    where rows sharing a review are in file order). collapse=True keeps one live
-    row per review (see collapse_reviews); use it for anything that reads
-    transitions between consecutive reviews.
+    collapse=True (default) keeps one live row per condition-review (see
+    collapse_reviews). collapse=False keeps every row, with rows sharing a review
+    in file order: the reading used in the first draft of the correction notice.
     """
     if collapse:
         rows = collapse_reviews(rows)
