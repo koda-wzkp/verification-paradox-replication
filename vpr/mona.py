@@ -75,12 +75,15 @@ def normalize(text: str) -> str:
 
 def load_rows(path: Path, combined: str = "zero") -> pd.DataFrame:
     df = pd.read_excel(path, sheet_name="MonaData")
+    test_date = pd.to_datetime(df["NewTestDate"], errors="coerce").fillna(
+        pd.to_datetime(df["Test Date"], errors="coerce"))
     out = pd.DataFrame({
         "arr": pd.to_numeric(df["Arrangement Number"], errors="coerce"),
         "ctype": df["Key Code"].fillna("SB").astype(str).str.strip(),
         "desc": df["Description"],
         "review": df["Review Type"].map(lambda r: review_number(r, combined)),
         "status": df["PC Status"].map(decode_status),
+        "test_date": test_date,
         "year": pd.to_numeric(df["Approval Year"], errors="coerce"),
     })
     out = out[out.arr.notna() & out.desc.notna() & (out.desc.astype(str).str.strip() != "")]
@@ -90,8 +93,34 @@ def load_rows(path: Path, combined: str = "zero") -> pd.DataFrame:
     return out
 
 
-def histories(rows: pd.DataFrame) -> dict[tuple, list[tuple[int, str]]]:
-    """{(arr, ctype, normalized description): [(review, status), ...] sorted by review}."""
+def collapse_reviews(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per condition per review: the live row.
+
+    When a deadline is renegotiated, MONA keeps the superseded deadline as a
+    "Modified date" row at that review and later ones, beside the row carrying
+    the new deadline. The live row is the one with the latest test date; on a
+    tie, an assessed status wins over an unassessed one. The returned frame adds
+    `renegotiated`: True when any row for that condition-review was Modified date.
+    """
+    r = rows.copy()
+    r["_assessed"] = r.status.isin(ASSESSED)
+    r["renegotiated"] = r.groupby(["arr", "ctype", "key", "review"]).status.transform(
+        lambda s: (s == "Modified date").any())
+    r = r.sort_values(["arr", "ctype", "key", "review", "test_date", "_assessed"],
+                      na_position="first", kind="mergesort")
+    return r.groupby(["arr", "ctype", "key", "review"], as_index=False).tail(1).drop(columns="_assessed")
+
+
+def histories(rows: pd.DataFrame, collapse: bool = False) -> dict[tuple, list[tuple[int, str]]]:
+    """{(arr, ctype, normalized description): [(review, status), ...] sorted by review}.
+
+    collapse=False keeps every row (the reading used for the correction notice,
+    where rows sharing a review are in file order). collapse=True keeps one live
+    row per review (see collapse_reviews); use it for anything that reads
+    transitions between consecutive reviews.
+    """
+    if collapse:
+        rows = collapse_reviews(rows)
     h: dict[tuple, list] = defaultdict(list)
     for arr, ct, key, rv, st in rows[["arr", "ctype", "key", "review", "status"]].itertuples(index=False):
         h[(arr, ct, key)].append((int(rv), st))

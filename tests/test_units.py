@@ -44,3 +44,21 @@ def test_reference_snapshot_counts():
     rows = mona.load_rows(DATA)
     assert len(mona.histories(rows)) == 11_860
     assert rows.arr.nunique() == 339
+
+
+@needs_data
+def test_collapse_leaves_one_row_per_review():
+    rows = mona.load_rows(DATA)
+    hist = mona.histories(rows, collapse=True)
+    assert all(len(h) == len({r for r, _ in h}) for h in hist.values())
+    assert len(hist) == len(mona.histories(rows))
+
+
+def test_collapse_keeps_live_row():
+    import pandas as pd
+    rows = pd.DataFrame({
+        "arr": [1, 1], "ctype": ["SB", "SB"], "key": ["k", "k"], "review": [2, 2],
+        "status": ["Modified date", "Met"],
+        "test_date": pd.to_datetime(["2007-03-31", "2007-09-30"]), "year": [2006, 2006], "desc": ["d", "d"]})
+    out = mona.collapse_reviews(rows)
+    assert list(out.status) == ["Met"] and bool(out.renegotiated.iloc[0])
