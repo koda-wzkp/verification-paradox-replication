@@ -40,6 +40,10 @@ Sensitivity: `python reproduce.py --combined later` reads combined review codes 
 - Assessed statuses are poorly described by a single Weibull shape: most conditions change at the next review or practically never. A two-population model is the planned replacement.
 - Causal direction is open.
 
+## Research guardrails
+
+This repository follows [RESEARCH-GUARDRAILS.md](RESEARCH-GUARDRAILS.md): every published figure comes from `reproduce.py`, estimators are tested on known answers, and drafts are checked with `python scripts/flag_claims.py draft.md` for overclaiming vocabulary.
+
 ## Contributing
 
 Issues and pull requests are welcome, especially: a two-population survival model for assessed statuses; a frailty test for the Declared hazard; replication on other conditionality datasets (World Bank, Global Fund).
